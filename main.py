@@ -1,34 +1,38 @@
 import os
 import telebot
 import pandas as pd
-from binance.client import Client
 import ta
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from persiantools.jdatetime import JalaliDateTime
+import requests
 
 # Set up logging
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Initialize Binance client
-binance_client = Client()
-
 # Initialize Telegram bot
-BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', "7474610426:AAEZfSWiMImUomZGWLE_gQuxUAQM49YXUDQ")
-CHANNEL_ID = os.environ.get('TELEGRAM_CHANNEL_ID', "-1002222040175")
+BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
+CHANNEL_ID = os.environ.get('TELEGRAM_CHANNEL_ID')
 bot = telebot.TeleBot(BOT_TOKEN)
 
 CHANNEL_NAME = "Whale Room"
 
 def get_bitcoin_data():
-    logging.info("Fetching Bitcoin data from Binance")
+    logging.info("Fetching Bitcoin data from CoinGecko")
     try:
-        klines = binance_client.get_historical_klines("BTCUSDT", Client.KLINE_INTERVAL_4HOUR, "30 days ago UTC")
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=30)
         
-        df = pd.DataFrame(klines, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume', 'close_time', 'quote_asset_volume', 'number_of_trades', 'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'ignore'])
+        url = f"https://api.coingecko.com/api/v3/coins/bitcoin/market_chart/range?vs_currency=usd&from={int(start_date.timestamp())}&to={int(end_date.timestamp())}"
+        response = requests.get(url)
+        data = response.json()
+        
+        df = pd.DataFrame(data['prices'], columns=['timestamp', 'close'])
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-        df['close'] = df['close'].astype(float)
+        df.set_index('timestamp', inplace=True)
+        df = df.resample('4H').last()  # Resample to 4-hour intervals
+        df.reset_index(inplace=True)
         
         logging.info(f"Successfully fetched {len(df)} data points")
         return df
