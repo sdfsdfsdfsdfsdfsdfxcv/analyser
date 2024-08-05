@@ -28,7 +28,7 @@ def get_bitcoin_data():
         url = "https://open-api.bingx.com/openApi/swap/v2/quote/klines"
         params = {
             "symbol": "BTC-USDT",
-            "interval": "240",  # 4 hours in minutes
+            "interval": "4h",  # Changed from "240" to "4h"
             "startTime": int(start_date.timestamp() * 1000),
             "endTime": int(end_date.timestamp() * 1000),
             "limit": 500  # Adjust as needed, max is 1000
@@ -36,8 +36,8 @@ def get_bitcoin_data():
         response = requests.get(url, params=params)
         data = response.json()
         
-        if data['code'] != 0:
-            raise Exception(f"API Error: {data['msg']}")
+        if 'code' in data and data['code'] != 0:
+            raise Exception(f"API Error: {data.get('msg', 'Unknown error')}")
         
         df = pd.DataFrame(data['data'], columns=['timestamp', 'open', 'high', 'low', 'close', 'volume', 'turnover'])
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
