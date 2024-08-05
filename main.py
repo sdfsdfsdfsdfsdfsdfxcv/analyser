@@ -20,20 +20,30 @@ bot = telebot.TeleBot(BOT_TOKEN)
 CHANNEL_NAME = "Whale Room"
 
 def get_bitcoin_data():
-    logging.info("Fetching Bitcoin data from CoinGecko")
+    logging.info("Fetching Bitcoin data from BingX")
     try:
         end_date = datetime.now()
         start_date = end_date - timedelta(days=30)
         
-        url = f"https://api.coingecko.com/api/v3/coins/bitcoin/market_chart/range?vs_currency=usd&from={int(start_date.timestamp())}&to={int(end_date.timestamp())}"
-        response = requests.get(url)
+        url = "https://open-api.bingx.com/openApi/swap/v2/quote/klines"
+        params = {
+            "symbol": "BTC-USDT",
+            "interval": "240",  # 4 hours in minutes
+            "startTime": int(start_date.timestamp() * 1000),
+            "endTime": int(end_date.timestamp() * 1000),
+            "limit": 500  # Adjust as needed, max is 1000
+        }
+        response = requests.get(url, params=params)
         data = response.json()
         
-        df = pd.DataFrame(data['prices'], columns=['timestamp', 'close'])
+        if data['code'] != 0:
+            raise Exception(f"API Error: {data['msg']}")
+        
+        df = pd.DataFrame(data['data'], columns=['timestamp', 'open', 'high', 'low', 'close', 'volume', 'turnover'])
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        df = df[['timestamp', 'open', 'high', 'low', 'close', 'volume']]
+        df = df.astype({'open': float, 'high': float, 'low': float, 'close': float, 'volume': float})
         df.set_index('timestamp', inplace=True)
-        df = df.resample('4H').last()  # Resample to 4-hour intervals
-        df.reset_index(inplace=True)
         
         logging.info(f"Successfully fetched {len(df)} data points")
         return df
@@ -53,7 +63,7 @@ def calculate_indicators(df):
         df['MA20'] = ta.trend.SMAIndicator(df['close'], window=20).sma_indicator()
         df['MA50'] = ta.trend.SMAIndicator(df['close'], window=50).sma_indicator()
         
-        df['ATR'] = ta.volatility.AverageTrueRange(df['close']).average_true_range()
+        df['ATR'] = ta.volatility.AverageTrueRange(high=df['high'], low=df['low'], close=df['close'], window=14).average_true_range()
         
         logging.info("Technical indicators calculated successfully")
         return df
