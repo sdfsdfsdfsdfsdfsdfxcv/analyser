@@ -6,6 +6,7 @@ import logging
 from datetime import datetime, timedelta
 from persiantools.jdatetime import JalaliDateTime
 import requests
+import numpy as np
 
 # Set up logging
 logging.basicConfig(level=logging.INFO,
@@ -52,6 +53,8 @@ def calculate_indicators(df):
         df['MA20'] = ta.trend.SMAIndicator(df['close'], window=20).sma_indicator()
         df['MA50'] = ta.trend.SMAIndicator(df['close'], window=50).sma_indicator()
         
+        df['ATR'] = ta.volatility.AverageTrueRange(df['close']).average_true_range()
+        
         logging.info("Technical indicators calculated successfully")
         return df
     except Exception as e:
@@ -65,26 +68,41 @@ def analyze_indicators(df):
         analysis = []
         
         price_change = (last_row['close'] - df['close'].iloc[-2]) / df['close'].iloc[-2] * 100
-        analysis.append(f"📊 قیمت در 4 ساعت گذشته {'افزایش' if price_change > 0 else 'کاهش'} یافته است به میزان {abs(price_change):.2f}٪.")
+        if price_change > 0:
+            analysis.append(f"📈 واو! قیمت بیت‌کوین تو 4 ساعت گذشته {price_change:.2f}٪ رفته بالا! چه خبره؟")
+        else:
+            analysis.append(f"📉 اوه اوه! قیمت بیت‌کوین تو 4 ساعت گذشته {abs(price_change):.2f}٪ اومده پایین. نگران نباشید، این‌ها عادیه!")
         
         if last_row['close'] > last_row['MA20'] > last_row['MA50']:
-            analysis.append("📈 قیمت بالاتر از MA20 و MA50 است، که نشان‌دهنده روند صعودی قوی است.")
+            analysis.append("🚀 به به! قیمت از MA20 و MA50 زده بالاتر. انگار داره میره ماه!")
         elif last_row['close'] < last_row['MA20'] < last_row['MA50']:
-            analysis.append("📉 قیمت پایین‌تر از MA20 و MA50 است، که نشان‌دهنده روند نزولی قوی است.")
+            analysis.append("🐻 اوضاع یکم خرسی شده! قیمت زیر MA20 و MA50 هست. مواظب باشید!")
         else:
-            analysis.append("↔️ قیمت بین MA20 و MA50 است، که نشان‌دهنده احتمال تغییر روند یا تثبیت است.")
+            analysis.append("🎢 قیمت بین MA20 و MA50 در نوسانه. انگار بیت‌کوین تصمیمش رو نگرفته کدوم وری بره!")
         
         if last_row['RSI'] > 70:
-            analysis.append("🔥 مقدار RSI بالای 70 است، که نشان‌دهنده شرایط اشباع خرید است.")
+            analysis.append("🔥 مقدار RSI از 70 زده بالاتر! داغ داغه، ولی مواظب باش نسوزی!")
         elif last_row['RSI'] < 30:
-            analysis.append("❄️ مقدار RSI زیر 30 است، که نشان‌دهنده شرایط اشباع فروش است.")
+            analysis.append("🧊 مقدار RSI رفته زیر 30! سرده سرده، ولی شاید وقت خرید باشه؟")
         else:
-            analysis.append(f"➖ مقدار RSI در سطح {last_row['RSI']:.2f} است، که نشان‌دهنده مومنتوم خنثی است.")
+            analysis.append(f"😐 مقدار RSI الان {last_row['RSI']:.2f} هست. نه داغه، نه سرد. فعلاً خنثی میزنه.")
         
         if last_row['MACD'] > last_row['MACD_signal']:
-            analysis.append("🐂 مقدار MACD بالای خط سیگنال است، که نشان‌دهنده مومنتوم صعودی است.")
+            analysis.append("🐂 مقدار MACD از خط سیگنال زده بالاتر! گاوها دارن زور میزنن!")
         else:
-            analysis.append("🐻 مقدار MACD زیر خط سیگنال است، که نشان‌دهنده مومنتوم نزولی است.")
+            analysis.append("🐻 مقدار MACD زیر خط سیگناله! خرس‌ها دارن قدرت نمایی می‌کنن!")
+        
+        # Calculate probabilities
+        rising_prob, falling_prob, ranging_prob = calculate_probabilities(df)
+        analysis.append(f"\n🎰 بذار ببینم شانست چقدره:")
+        analysis.append(f"📈 احتمال صعود: {rising_prob:.2f}٪")
+        analysis.append(f"📉 احتمال نزول: {falling_prob:.2f}٪")
+        analysis.append(f"↔️ احتمال نوسان: {ranging_prob:.2f}٪")
+        
+        # Add guidance
+        guidance = provide_guidance(rising_prob, falling_prob, ranging_prob, last_row)
+        analysis.append(f"\n💡 نظر من چیه؟ بذار بگم:")
+        analysis.append(guidance)
         
         logging.info("Indicator analysis completed")
         return "\n".join(analysis)
@@ -92,11 +110,61 @@ def analyze_indicators(df):
         logging.error(f"Error analyzing indicators: {str(e)}")
         raise
 
+def calculate_probabilities(df):
+    last_row = df.iloc[-1]
+    
+    # Trend based on moving averages
+    trend_score = (1 if last_row['close'] > last_row['MA20'] else -1) + \
+                  (1 if last_row['close'] > last_row['MA50'] else -1)
+    
+    # Momentum based on RSI and MACD
+    momentum_score = (1 if last_row['RSI'] > 50 else -1) + \
+                     (1 if last_row['MACD'] > last_row['MACD_signal'] else -1)
+    
+    # Volatility based on ATR
+    volatility = last_row['ATR'] / last_row['close']
+    
+    # Calculate probabilities
+    total_score = trend_score + momentum_score
+    rising_prob = max(0, min(100, 50 + total_score * 12.5))
+    falling_prob = max(0, min(100, 50 - total_score * 12.5))
+    ranging_prob = max(0, 100 - rising_prob - falling_prob)
+    
+    # Adjust for volatility
+    if volatility > 0.03:  # High volatility
+        ranging_prob = min(ranging_prob, 20)
+        excess = (100 - ranging_prob) / 2
+        rising_prob = falling_prob = excess
+    elif volatility < 0.01:  # Low volatility
+        ranging_prob = max(ranging_prob, 60)
+        excess = (100 - ranging_prob) / 2
+        rising_prob = falling_prob = excess
+    
+    return rising_prob, falling_prob, ranging_prob
+
+def provide_guidance(rising_prob, falling_prob, ranging_prob, last_row):
+    guidance = []
+    
+    if rising_prob > max(falling_prob, ranging_prob):
+        guidance.append("🚀 به نظر میاد بازار داره گرم میشه! اگه جای خوبی برای خرید پیدا کردی، شاید بد نباشه یه کم بخری.")
+        if last_row['RSI'] > 70:
+            guidance.append("🔥 ولی حواست باشه، RSI خیلی بالاست. یعنی ممکنه یهو برگرده پایین. مواظب باش!")
+    elif falling_prob > max(rising_prob, ranging_prob):
+        guidance.append("🛷 اوه اوه، انگار بازار داره سر میخوره! اگه جای خوبی برای فروش دیدی، شاید وقتشه یه کم سود بگیری.")
+        if last_row['RSI'] < 30:
+            guidance.append("🧊 البته RSI خیلی پایینه. یعنی ممکنه یهو برگرده بالا. حواست جمع باشه!")
+    else:
+        guidance.append("🎢 فعلاً بازار داره این ور و اون ور میره. شاید بهتره صبر کنی ببینی چی میشه. اگه دوست داری، میتونی تو این نوسان‌ها خرید و فروش کنی.")
+    
+    guidance.append("🧠 یادت نره، این فقط نظر منه! همیشه خودت فکر کن و تصمیم بگیر. مواظب سرمایه‌ات باش و ریسک نکن!")
+    
+    return "\n".join(guidance)
+
 def send_analysis_to_telegram(analysis):
     logging.info("Sending analysis to Telegram")
     try:
         current_time = JalaliDateTime.now().strftime("%Y-%m-%d %H:%M:%S")
-        message = f"تحلیل تکنیکال بیت‌کوین برای {CHANNEL_NAME} 🚀\n\nزمان تحلیل: {current_time}\n\n{analysis}\n\n🐳 @WhaleRoomTrade"
+        message = f"🔍 تحلیل بیت‌کوین برای {CHANNEL_NAME} 🚀\n\n⏰ زمان تحلیل: {current_time}\n\n{analysis}\n\n🐳 @WhaleRoomTrade"
         bot.send_message(CHANNEL_ID, message)
         logging.info("Analysis sent to Telegram successfully")
     except Exception as e:
